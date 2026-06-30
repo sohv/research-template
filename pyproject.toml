@@ -1,0 +1,32 @@
+[project]
+name = "research-project"
+version = "0.1.0"
+description = "Research project scaffold"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "pyyaml",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pre-commit",
+    "ruff",
+]
+# Add inference-stack extras per project as needed, e.g.:
+# inference = ["vllm", "transformers", "accelerate", "torch"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
