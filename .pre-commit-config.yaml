@@ -31,6 +31,7 @@ repos:
 
       - id: no-raw-data-edits
         name: block edits to data/raw
-        entry: bash -c 'git diff --cached --name-only | grep -E "^data/raw/" && echo "data/raw/ is read-only" && exit 1 || exit 0'
+        # M and D only: adding a new source dataset is fine, changing or deleting one is not
+        entry: bash -c 'git diff --cached --name-only --diff-filter=MD | grep -E "^data/raw/" && echo "data/raw/ is read-only. add new files freely, but never modify or delete one — derive into data/processed/ instead" && exit 1 || exit 0'
         language: system
         pass_filenames: false
