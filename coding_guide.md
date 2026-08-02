@@ -13,7 +13,8 @@ repo root — read that first. This guide is about day-to-day navigation and col
   - `src/finetuning/` — training loops.
   - `src/interp/` — probes, features, hook points.
   - `src/metrics/` — metric computation and downstream analysis.
-  - `src/utils/` — seeding, logging, and other shared helpers.
+  - `src/utils/` — seeding, logging, the git hash and `config.json` written beside every run, and
+    other shared helpers.
 - `scripts/` holds entry points. Each script is a thin CLI wrapper that parses arguments and calls
   into `src/`. One script per pipeline stage, e.g. `scripts/run_generation.py`.
 - `configs/` holds one YAML per experiment: model lists, hyperparameters, dataset paths.
@@ -22,12 +23,16 @@ repo root — read that first. This guide is about day-to-day navigation and col
 - `data/raw/` is untouched source data. `data/processed/` is anything produced by `src/data/`.
   `data/splits/` holds fixed IDs, seeds, and eval splits saved as files.
 - `results/raw/` holds run outputs and is append-only — a rerun writes a new subfolder, it never
-  overwrites a previous one. `results/tables/` and `results/figures/` hold polished outputs for
-  the paper.
+  overwrites a previous one. Each run folder carries its `config.json` and `run.log` beside the
+  results, so any number traces back to the commit that produced it. Output too large to commit
+  goes in that run's `generations/` subfolder, which is gitignored — that's the escape valve when
+  the large-file hook blocks a commit. `results/tables/` and `results/figures/` hold polished
+  outputs for the paper.
 - `docs/` holds design rationale: `experimental_design.md`, `decisions.md` (pre-registered
   thresholds and design choices), and `project_design_decisions.md` (background on the project).
   Read these before starting a new experiment so you don't repeat a discussion that's already been
-  settled.
+  settled. `docs/project_claude_md/` holds override templates to copy into a project's own
+  `CLAUDE.md` when it's a fine-tuning or interpretability project.
 - `tests/` mirrors the `src/` modules it covers.
 - `cache/` is the local LLM response cache. Gitignored, never shared, safe to delete — the only
   cost is re-paying for the calls.
@@ -53,9 +58,10 @@ repo root — read that first. This guide is about day-to-day navigation and col
 
 ## Git workflow
 
-We create a branch for each task we take on. We open a pull request when the task is done,
-describing what we did and why. We merge the PR into `main` once it's reviewed. We never push or
-commit directly to `main` — every change reaches it through a PR.
+We create a branch for each task we take on, and never commit directly to `main`. On a project with
+collaborators, or with CI running on pull requests, we open a PR when the task is done, describing
+what we did and why, and merge it into `main` once it's reviewed. Working solo with no CI, we merge
+the branch locally — a PR you approve yourself is not a review. The habits below apply either way.
 
 **Branch and sync habits**
 
@@ -97,7 +103,7 @@ pre-commit run --all-files
 git commit -m "short, descriptive message"
 git push -u origin feat/short-topic-name
 
-# open a PR with gh
+# with collaborators or CI: open a PR with gh
 gh pr create --title "short title" --body "what changed and why"
 
 # check on a PR
@@ -108,5 +114,10 @@ gh pr checks
 gh pr merge --squash
 git checkout main
 git pull
+git branch -d feat/short-topic-name
+
+# solo with no CI: merge locally instead of opening a PR
+git checkout main
+git merge --no-ff feat/short-topic-name
 git branch -d feat/short-topic-name
 ```
