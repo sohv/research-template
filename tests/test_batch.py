@@ -1,6 +1,8 @@
 import hashlib
 import json
 
+import pytest
+
 from src.generation.batch import run_batch
 
 DEBUG_MODEL = "claude-haiku-4-5-20251001"
@@ -22,9 +24,11 @@ def cache_key(model: str, prompt: str) -> str:
     return hashlib.md5(f"{model}{json.dumps(messages, sort_keys=True)}".encode()).hexdigest()
 
 
-async def test_run_batch_returns_none_for_every_failed_call(tmp_path, monkeypatch):
+async def test_run_batch_raises_when_every_call_fails(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert await run_batch(FailingClient(), ["a", "b"], DEBUG_MODEL) == [None, None]
+    # a full page of nulls would look like a finished run, so total failure crashes instead
+    with pytest.raises(RuntimeError, match="all 2 calls"):
+        await run_batch(FailingClient(), ["a", "b"], DEBUG_MODEL)
 
 
 async def test_run_batch_keeps_successes_and_order_when_a_call_fails(tmp_path, monkeypatch):
