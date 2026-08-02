@@ -17,11 +17,13 @@ LOGGER = logging.getLogger(__name__)
 
 
 def score(records: list[dict]) -> dict:
-    lengths = [len(r["response"]) for r in records]
+    responses = [r["response"] for r in records]
+    lengths = [len(response) for response in responses if response is not None]
     return {
         "n_records": len(records),
-        "mean_response_chars": float(np.mean(lengths)),
-        "median_response_chars": float(np.median(lengths)),
+        "n_failed_responses": sum(1 for response in responses if response is None),
+        "mean_response_chars": float(np.mean(lengths)) if lengths else 0.0,
+        "median_response_chars": float(np.median(lengths)) if lengths else 0.0,
         "n_empty_responses": sum(1 for length in lengths if length == 0),
     }
 
@@ -40,6 +42,8 @@ def main():
     LOGGER.info(f"scoring {len(records)} records from {config.dataset_path}")
 
     metrics = score(records) | {"model_id": config.model_id, "seed": config.seed}
+    if metrics["n_failed_responses"]:
+        LOGGER.error(f"{metrics['n_failed_responses']} failed responses in {config.dataset_path}")
     if metrics["n_empty_responses"]:
         LOGGER.warning(f"{metrics['n_empty_responses']} empty responses in {config.dataset_path}")
 

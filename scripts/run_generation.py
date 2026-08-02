@@ -41,8 +41,13 @@ def main():
     responses = asyncio.run(run_batch(client, [r["prompt"] for r in records], config.model_id))
     outputs = [{"id": r["id"], "prompt": r["prompt"], "response": resp} for r, resp in zip(records, responses)]
 
+    # failed calls are kept as null responses. a dropped row is a silently shrunk dataset
+    n_failed = sum(1 for output in outputs if output["response"] is None)
+
     path = write_jsonl(outputs, output_dir / "outputs.jsonl")
     print(f"Results saved to {path}")
+    if n_failed:
+        print(f"{n_failed}/{len(outputs)} calls failed and were written with a null response")
     print(
         f"Score with: uv run -m scripts.run_metrics --dataset_path {path} "
         f"--output_dir {output_dir} --model_id {config.model_id} --seed {config.seed}"

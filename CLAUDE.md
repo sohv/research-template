@@ -2,6 +2,10 @@
 
 Check for a project-level CLAUDE.md in the repo root and follow it. Project-level rules override these.
 
+For a fine-tuning or interpretability project, start that file from
+`docs/project_claude_md/finetuning.md` or `docs/project_claude_md/interp.md`. They override the
+sections below that assume an experiment built out of API calls.
+
 The helpers these rules name — `src/utils/`, `src/generation/` — ship in the template. In a project
 that wasn't cloned from it, copy the module out of the template rather than retyping it, so there's
 one source of truth instead of a second copy that drifts.
@@ -19,11 +23,55 @@ one source of truth instead of a second copy that drifts.
 - Avoid unnecessary complexity. If a simple solution works, use it. Do not over-engineer. Do not under-engineer.
 ---
 
+# Two-mode workflow
+
+Decide which mode you're in before writing anything — it decides how much of this file applies.
+
+**De-risk mode** — use when asking "does this even work?"
+- Notebooks are fine. Hardcoded paths are fine. Copy-paste is fine.
+- Notebooks live in `notebooks/`, never in `src/` or `scripts/`.
+- Goal is one question answered fast, not clean code.
+- 75% of experiments stay here permanently.
+- Sections marked **Extended mode** below do not apply.
+
+**Extended project mode** — use when the experiment works and needs to scale or be shared.
+- Move reusable logic from the notebook into `src/`, and the run itself into a `scripts/run_*.py` entry point.
+- Add CLI args, caching, logging, proper output paths.
+- Add pre-commit hooks if collaborating.
+- Switch modes when: compute cost is high, collaborators need to run it, or you're writing it into a paper.
+
+Do not over-engineer de-risk experiments. Do not under-engineer extended ones.
+
+## The de-risk floor
+
+De-risk skips the ceremony, not the record. Whatever else it skips, every de-risk run still:
+
+1. Writes its results to a structured file. Never stdout alone.
+2. Records the seed it used.
+3. Gets a `research_log.md` entry when it finishes.
+
+That is the reproducibility spine, and it is three lines of work. Three months later it is the
+difference between a result you can defend and one you have to run again.
+
+---
+
+# Derisking workflow order
+
+Before writing any code, validate the idea manually. Follow this order and only move to the next step when the current one confirms the idea is worth pursuing:
+
+1. **Chat interface first** — send 10-100 messages in Claude.ai or ChatGPT. Manually test the behavior you're trying to measure or produce. Update the prompt based on what you see. This costs nothing and takes 30 minutes. If it doesn't work here it won't work in code.
+2. **Few-shot prompting** — add 1-10 gold examples of the behavior you want and test manually. If a few examples in the prompt don't improve the behavior, reconsider the approach before scaling.
+3. **Small-scale code** — write a script, run on 10-50 examples, confirm the result matches what you saw manually. Use the debug model (`claude-haiku-4-5-20251001` or `gpt-4o-mini`).
+4. **Full-scale run** — only after step 3 confirms the experiment works. Use production model, full dataset, tmux overnight.
+
+Never skip to step 3 or 4 without doing steps 1 and 2. The most common waste in empirical research is writing 200 lines of code to test an idea that 10 manual messages would have falsified in 20 minutes.
+
+---
+
 # Python conventions
 
 - Use type hints on all function signatures. Use `dict`, `list`, `tuple`, `X | None` instead of `typing.Dict`, `typing.Optional`, etc.
 - Use `async def` for any function that has LLM API calls downstream of it.
-- Prefer Pydantic models over raw dicts for structured data. Use `model_dump()` not `.dict()`.
 - Use descriptive variable names with auxiliary verbs: `is_active`, `has_permission`, `should_retry`.
 - Lowercase with underscores for all file and directory names.
 - Imports at the top of every file.
@@ -34,7 +82,8 @@ one source of truth instead of a second copy that drifts.
 # Writing code
 
 - No decorators in scripts meant to run from the console. Keep the entry point a plain function call.
-- No `try`/`except` unless the program genuinely cannot continue without it (e.g., graceful shutdown of a server, or retrying a flaky network call). Let errors crash loudly.
+- No `try`/`except` around data creation or logic errors. Let those crash loudly — a silent wrong number is worse than a stack trace.
+- The one exception is the per-item boundary of a batch: catch there, `LOGGER.error` with the item's id, record the failure in the output file, and keep going. One failed call must never discard the results of a long run. `run_batch` in `src/generation/batch.py` is the worked example — see the LLM API calls section.
 - File-level comment at the top of each script: one line saying what the experiment does, followed by the run command. Nothing else.
 - Never use decorative separators in experiment output. No lines of `#`, `*`, `=`, `-`, or any other repeated character. No banners like `print("#" * 70)`. Each experiment stage prints its heading as a plain line followed by its results. Nothing else.
 - Keep inline comments short, one line max, plain words. Only comment on non-obvious logic. No comment is better than a redundant comment. Start comments with a lowercase letter.
@@ -98,7 +147,11 @@ For concurrent calls, use `run_batch(client, prompts, model, max_concurrent=20)`
 `src/generation/batch.py`. It wraps `asyncio.gather` in a semaphore so a large batch doesn't open
 hundreds of simultaneous connections.
 
-Log failed requests prominently. Never let them fail silently. Processing should continue on individual failures when possible.
+Log failed requests prominently. Never let them fail silently. Processing continues on individual
+failures: `run_batch` catches inside each call, logs the failure with its index, and returns `None`
+in that slot so the results still line up with the prompts. One 429 twelve hours into an overnight
+sweep must not throw away everything that succeeded before it. Callers record those `None`s as
+failed rows rather than dropping them — a shrunk output file is a silent failure.
 
 Default models:
 - Debug/testing: `claude-haiku-4-5-20251001` or `gpt-4o-mini`
@@ -110,19 +163,8 @@ Never set temperature or max_tokens unless the experiment explicitly requires it
 
 # LiteLLM
 
-Use LiteLLM when a project needs to call multiple providers with the same interface. Install with `uv sync --extra llm`.
-
-```python
-from litellm import completion
-
-response = completion(model="claude-sonnet-4-6", messages=[{"role": "user", "content": "hello"}])
-response = completion(model="gpt-4o", messages=[{"role": "user", "content": "hello"}])
-response = completion(model="gemini/gemini-pro", messages=[{"role": "user", "content": "hello"}])
-```
-
-Same interface for everything. Use this instead of rewriting API call code per project when running experiments across multiple models.
-
-For async:
+Use LiteLLM when a project calls multiple providers, so you write the call once instead of once per
+provider. Install with `uv sync --extra llm`.
 
 ```python
 from litellm import acompletion
@@ -130,50 +172,34 @@ from litellm import acompletion
 response = await acompletion(model="claude-sonnet-4-6", messages=[{"role": "user", "content": "hello"}])
 ```
 
+Swap `model` for `gpt-4o` or `gemini/gemini-pro` and nothing else changes.
+
 ---
 
 # Weights and Biases
 
-Use W&B for any experiment that runs more than a handful of API calls or has multiple conditions to compare. It is a base dependency, so `uv sync` already installs it.
+**Extended mode.**
 
-Sign up at https://wandb.ai, then authenticate once:
-
-```bash
-wandb login
-```
-
-Add to every experiment script:
+Use W&B when an experiment has multiple conditions worth comparing on a dashboard. A single run with
+one condition doesn't need it. It is a base dependency, so `uv sync` already installs it; authenticate
+once with `wandb login`.
 
 ```python
-import wandb
-
-wandb.init(
-    project="project-name",
-    config={
-        "model_id": config.model_id,
-        "num_tasks": config.num_tasks,
-        "seed": config.seed,
-    }
-)
-
-# inside your loop:
-wandb.log({"accuracy": acc, "loss": loss, "step": i})
-
-# at the end:
+wandb.init(project="project-name", config={"model_id": config.model_id, "seed": config.seed})
+wandb.log({"accuracy": acc, "step": i})
+wandb.summary["final_accuracy"] = final_acc
 wandb.finish()
 ```
 
-Log the key metric at the end of each run so runs are comparable across experiments:
-
-```python
-wandb.summary["final_accuracy"] = final_acc
-```
-
-Use consistent project names per paper so all runs for that paper appear together on the dashboard. Example: `"nonidentifiability"`, `"cot-flip"`, `"sycophancy-control"`.
+Set `wandb.summary` for the key metric so runs stay comparable across experiments. Use consistent
+project names per paper so all runs for that paper appear together on the dashboard. Example:
+`"nonidentifiability"`, `"cot-flip"`, `"sycophancy-control"`.
 
 ---
 
 # Experiment scripts
+
+**Extended mode.** A notebook with a hardcoded path answers a de-risk question fine; it needs none of this.
 
 Use `simple_parsing` with a dataclass config for every experiment script. The base `Config` in
 `src/utils/config.py` carries `model_id`, `dataset_path`, `output_dir`, `num_tasks`, `n_repeats`,
@@ -229,37 +255,6 @@ uv run -m scripts.run_steering \
   --num_tasks 10 \
   --seed 42
 ```
-
----
-
-# Derisking workflow order
-
-Before writing any code, validate the idea manually. Follow this order and only move to the next step when the current one confirms the idea is worth pursuing:
-
-1. **Chat interface first** — send 10-100 messages in Claude.ai or ChatGPT. Manually test the behavior you're trying to measure or produce. Update the prompt based on what you see. This costs nothing and takes 30 minutes. If it doesn't work here it won't work in code.
-2. **Few-shot prompting** — add 1-10 gold examples of the behavior you want and test manually. If a few examples in the prompt don't improve the behavior, reconsider the approach before scaling.
-3. **Small-scale code** — write a script, run on 10-50 examples, confirm the result matches what you saw manually. Use the debug model (`claude-haiku-4-5-20251001` or `gpt-4o-mini`).
-4. **Full-scale run** — only after step 3 confirms the experiment works. Use production model, full dataset, tmux overnight.
-
-Never skip to step 3 or 4 without doing steps 1 and 2. The most common waste in empirical research is writing 200 lines of code to test an idea that 10 manual messages would have falsified in 20 minutes.
-
----
-
-# Two-mode workflow
-
-**De-risk mode** — use when asking "does this even work?"
-- Notebooks are fine. Hardcoded paths are fine. Copy-paste is fine.
-- Notebooks live in `notebooks/`, never in `src/` or `scripts/`.
-- Goal is one question answered fast, not clean code.
-- 75% of experiments stay here permanently.
-
-**Extended project mode** — use when the experiment works and needs to scale or be shared.
-- Move reusable logic from the notebook into `src/`, and the run itself into a `scripts/run_*.py` entry point.
-- Add CLI args, caching, logging, proper output paths.
-- Add pre-commit hooks if collaborating.
-- Switch modes when: compute cost is high, collaborators need to run it, or you're writing it into a paper.
-
-Do not over-engineer de-risk experiments. Do not under-engineer extended ones.
 
 ---
 
@@ -326,6 +321,8 @@ Key rules:
 
 # Documentation requirements
 
+**Extended mode.** A de-risk run owes a `research_log.md` entry, not a README section.
+
 Every script must have an entry in its README with:
 1. One sentence describing what the experiment tests.
 2. The exact bash command to run it, including all required args.
@@ -370,6 +367,8 @@ Default to stdout when there are only a few numbers to display. Only create a pl
 
 ## Plots
 
+**Extended mode.** A throwaway plot in a notebook needs none of these conventions.
+
 - Use matplotlib as default. Use seaborn for distributions and multi-condition comparisons.
 - Save per-run figures to `output_dir/figures/`. Print the figure path to stdout after saving. Polished figures for the paper go in `results/figures/`.
 - Titles and axis labels in sentence case.
@@ -388,6 +387,8 @@ Plot with: uv run -m scripts.plot_nonidentifiability --results_path results/raw/
 
 # Testing
 
+**Extended mode.** De-risk code doesn't need tests. The moment it moves into `src/`, it does.
+
 Run tests with:
 
 ```bash
@@ -402,8 +403,9 @@ uv run -m pytest tests/test_file.py::test_name -v -s
 
 Rules:
 - Write tests for any non-trivial function in `src/`.
-- Do not mock LLM calls. Use a real API call with a real small input.
-- Use a real small datapoint, call with the debug model (`claude-haiku-4-5-20251001` or `gpt-4o-mini`), assert on structure not exact content.
+- Do not mock LLM calls. Use a real API call with a real small datapoint, call with the debug model (`claude-haiku-4-5-20251001` or `gpt-4o-mini`), and assert on structure not exact content.
+- A test that hits an API is an integration test. Gate it on the key being present so a fresh clone isn't red before setup.
+- Pure-logic tests and error-boundary tests run unguarded. If the whole suite can be skipped, a green run tells you nothing — which is worse than a red one.
 - Tests should be fast. If a test needs a full experiment run, it is not a unit test.
 - Before implementing a function, write the test first and confirm it fails. Then implement.
 - Make sure tests pass before committing.
@@ -523,11 +525,11 @@ This is the thing you will read when writing the paper or preparing a rebuttal. 
 
 # Research principles
 
-After any experiment:
+After any extended-mode experiment:
 1. Write one sentence in the README describing what the experiment tests.
 2. Write the full bash command used to run it.
 3. Write what the script expects as input and what it produces.
-4. Create at least one visualization of the results. If you ran something, something gets plotted.
+4. Plot the result if it has structure worth seeing. If it's three numbers, print them.
 
 Before starting an experiment, ask:
 - Have I already run something similar? Check `research_log.md` before writing any code. The most common waste is re-running something you ran three weeks ago with slightly different wording.
