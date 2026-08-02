@@ -1,7 +1,18 @@
 import json
+import random
+
+import numpy as np
 
 from src.utils.config import Config, write_config_json
 from src.utils.git import get_git_hash
+from src.utils.seed import set_seed
+
+
+def test_set_seed_makes_a_run_repeatable():
+    set_seed(42)
+    first = (random.random(), float(np.random.rand()))
+    set_seed(42)
+    assert (random.random(), float(np.random.rand())) == first
 
 
 def test_get_git_hash_is_short_hex():

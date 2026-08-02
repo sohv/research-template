@@ -1,3 +1,4 @@
+import importlib.util
 import random
 
 import numpy as np
@@ -6,4 +7,10 @@ import numpy as np
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
-    # projects that add the inference extra seed torch here too
+    # torch is optional, so check before importing. this starts working the moment a project
+    # installs it, rather than waiting for someone to remember to extend this function
+    if importlib.util.find_spec("torch"):
+        import torch
+
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
