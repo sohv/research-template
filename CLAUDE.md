@@ -277,6 +277,7 @@ my-project/
 │   ├── data/                   # dataset loading and preprocessing
 │   ├── generation/             # model inference, prompting, sampling, LLM cache wrapper
 │   ├── finetuning/             # training loops
+│   ├── interp/                 # probes, features, hook points
 │   ├── metrics/                # metric computation and downstream analysis
 │   └── utils/                  # seeding, logging, git hash, shared helpers
 ├── scripts/                    # entry points, one per pipeline stage, thin wrappers over src/

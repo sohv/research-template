@@ -11,6 +11,7 @@ repo root — read that first. This guide is about day-to-day navigation and col
   - `src/data/` — dataset loading and preprocessing.
   - `src/generation/` — model inference, prompting, sampling.
   - `src/finetuning/` — training loops.
+  - `src/interp/` — probes, features, hook points.
   - `src/metrics/` — metric computation and downstream analysis.
   - `src/utils/` — seeding, logging, and other shared helpers.
 - `scripts/` holds entry points. Each script is a thin CLI wrapper that parses arguments and calls

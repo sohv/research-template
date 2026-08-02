@@ -35,8 +35,8 @@ during capture will otherwise make two runs of the same probe disagree.
 
 ## Additional conventions
 
-- Probe, feature, and hook code lives in `src/interp/`. Add it as a pipeline stage next to
-  `src/generation/` — don't overload `src/metrics/`, which is for downstream statistics.
+- Probe, feature, and hook code lives in `src/interp/`. Don't overload `src/metrics/`, which is for
+  downstream statistics.
 - `config.json` must record the **model revision hash**, not just `model_id`. Interp results are
   claims about specific weights; a silently updated checkpoint invalidates every cached activation
   and you'll have no way to tell after the fact.

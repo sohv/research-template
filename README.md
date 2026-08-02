@@ -29,6 +29,7 @@ data/splits/    fixed question IDs, seeds, eval splits saved as files
 src/data/       dataset loading and preprocessing
 src/generation/ model inference, prompting, sampling, LLM cache wrapper
 src/finetuning/ training loops
+src/interp/     probes, features, hook points
 src/metrics/    metric computation and downstream analysis (regressions, stats)
 src/utils/      seeding, logging, git hash, shared helpers
 scripts/        entry points that call into src/, one per pipeline stage
