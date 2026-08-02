@@ -1,13 +1,13 @@
 # scores a generation run's outputs.jsonl and writes summary metrics beside it.
 # uv run -m scripts.run_metrics --dataset_path results/raw/250612_example_v1/outputs.jsonl --output_dir results/raw/250612_example_v1 --model_id claude-sonnet-4-6 --seed 42
 
-import json
 import logging
 from pathlib import Path
 
 import numpy as np
 import simple_parsing
 
+from src.data.io import load_jsonl
 from src.metrics.io import write_json
 from src.utils.config import Config, write_config_json
 from src.utils.logging import setup_logging
@@ -37,8 +37,7 @@ def main():
     set_seed(config.seed)
     write_config_json(config, output_dir)
 
-    lines = Path(config.dataset_path).read_text().splitlines()
-    records = [json.loads(line) for line in lines if line.strip()]
+    records = load_jsonl(config.dataset_path, config.num_tasks)
     LOGGER.info(f"scoring {len(records)} records from {config.dataset_path}")
 
     metrics = score(records) | {"model_id": config.model_id, "seed": config.seed}
