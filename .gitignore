@@ -12,7 +12,8 @@ cache/
 *.log
 
 # bulk run artifacts. summary.json, metrics.json, config.json and outputs.jsonl stay committed
-# so every reported number traces to a file in git. dumps too large for that go in generations/.
+# so every reported number traces to a file in git. anything too large for that goes in
+# generations/ below, which is where check-added-large-files expects bulk output to live.
 results/raw/**/generations/
 *.parquet
 *.arrow
