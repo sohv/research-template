@@ -148,10 +148,13 @@ For concurrent calls, use `run_batch(client, prompts, model, max_concurrent=20)`
 hundreds of simultaneous connections.
 
 Log failed requests prominently. Never let them fail silently. Processing continues on individual
-failures: `run_batch` catches inside each call, logs the failure with its index, and returns `None`
-in that slot so the results still line up with the prompts. One 429 twelve hours into an overnight
-sweep must not throw away everything that succeeded before it. Callers record those `None`s as
-failed rows rather than dropping them — a shrunk output file is a silent failure.
+failures: `run_batch` catches inside each call, logs the failure with its index and a traceback, and
+returns `None` in that slot so the results still line up with the prompts. One 429 twelve hours into
+an overnight sweep must not throw away everything that succeeded before it. Callers record those
+`None`s as failed rows rather than dropping them — a shrunk output file is a silent failure.
+
+If *every* call fails, it raises. That's a bad key or a broken client, not a flaky network, and a
+full page of nulls would otherwise look like a finished run.
 
 Default models:
 - Debug/testing: `claude-haiku-4-5-20251001` or `gpt-4o-mini`
