@@ -1,9 +1,24 @@
 __pycache__/
 *.pyc
 .venv/
-.env
-results/raw/*
-!results/raw/.gitkeep
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.ipynb_checkpoints/
+.DS_Store
+
+.env
+cache/
+*.log
+
+# bulk run artifacts. summary.json, metrics.json, config.json and outputs.jsonl stay committed
+# so every reported number traces to a file in git. dumps too large for that go in generations/.
+results/raw/**/generations/
+*.parquet
+*.arrow
+*.npy
+*.npz
+*.pt
+*.pth
+*.bin
+*.safetensors
