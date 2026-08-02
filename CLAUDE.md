@@ -2,6 +2,10 @@
 
 Check for a project-level CLAUDE.md in the repo root and follow it. Project-level rules override these.
 
+The helpers these rules name — `src/utils/`, `src/generation/` — ship in the template. In a project
+that wasn't cloned from it, copy the module out of the template rather than retyping it, so there's
+one source of truth instead of a second copy that drifts.
+
 ---
 
 # Core principles
@@ -76,16 +80,7 @@ Use `LOGGER.info` for normal progress. `LOGGER.warning` for suspicious events. `
 
 Don't print too much to stdout. Use logging for internal state. Reserve stdout for output filenames and final results the user needs to see.
 
-Every experiment script also writes its log to `output_dir/run.log`, not just the console, so a background or tmux run leaves a trace to debug from if it crashes:
-
-```python
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[logging.StreamHandler(), logging.FileHandler(output_dir / "run.log")],
-)
-```
-
-Set this up after `output_dir` is created, before the run starts.
+Every experiment script also writes its log to `output_dir/run.log`, not just the console, so a background or tmux run leaves a trace to debug from if it crashes. Call `setup_logging(output_dir)` from `src/utils/logging.py` after `output_dir` is created, before the run starts.
 
 `*.log` is gitignored — logs are a local debugging trace, not something to commit.
 
@@ -95,36 +90,13 @@ Set this up after `output_dir` is created, before the run starts.
 
 Use the Anthropic and OpenAI SDKs directly, or LiteLLM if the project needs multiple providers.
 
-Always use the project's caching wrapper if one exists. If not, use this pattern:
+Always go through the project's caching wrapper: `cached_llm_call(client, model, messages)` in
+`src/generation/cache.py`. It keys the cache on model plus messages, so an identical call never
+bills twice and a rerun after a crash resumes from the cache instead of paying again.
 
-```python
-import hashlib, json
-from pathlib import Path
-
-async def cached_llm_call(client, model: str, messages: list[dict], cache_dir: str = "cache") -> str:
-    Path(cache_dir).mkdir(exist_ok=True)
-    key = hashlib.md5(f"{model}{json.dumps(messages, sort_keys=True)}".encode()).hexdigest()
-    path = Path(cache_dir) / f"{key}.json"
-    if path.exists():
-        return json.loads(path.read_text())["response"]
-    response = await client.messages.create(model=model, messages=messages, max_tokens=2048)
-    result = response.content[0].text
-    path.write_text(json.dumps({"response": result, "model": model}))
-    return result
-```
-
-For concurrent calls, use `asyncio.gather` with a semaphore:
-
-```python
-import asyncio
-
-async def run_batch(prompts: list[str], model: str, max_concurrent: int = 20) -> list[str]:
-    sem = asyncio.Semaphore(max_concurrent)
-    async def call(prompt):
-        async with sem:
-            return await cached_llm_call(client, model, [{"role": "user", "content": prompt}])
-    return await asyncio.gather(*[call(p) for p in prompts])
-```
+For concurrent calls, use `run_batch(client, prompts, model, max_concurrent=20)` in
+`src/generation/batch.py`. It wraps `asyncio.gather` in a semaphore so a large batch doesn't open
+hundreds of simultaneous connections.
 
 Log failed requests prominently. Never let them fail silently. Processing should continue on individual failures when possible.
 
@@ -138,7 +110,7 @@ Never set temperature or max_tokens unless the experiment explicitly requires it
 
 # LiteLLM
 
-Use LiteLLM when a project needs to call multiple providers with the same interface. Install with `uv add litellm`.
+Use LiteLLM when a project needs to call multiple providers with the same interface. Install with `uv sync --extra llm`.
 
 ```python
 from litellm import completion
@@ -162,7 +134,7 @@ response = await acompletion(model="claude-sonnet-4-6", messages=[{"role": "user
 
 # Weights and Biases
 
-Use W&B for any experiment that runs more than a handful of API calls or has multiple conditions to compare. Install with `uv add wandb`.
+Use W&B for any experiment that runs more than a handful of API calls or has multiple conditions to compare. It is a base dependency, so `uv sync` already installs it.
 
 Sign up at https://wandb.ai, then authenticate once:
 
@@ -203,28 +175,29 @@ Use consistent project names per paper so all runs for that paper appear togethe
 
 # Experiment scripts
 
-Use `simple_parsing` with a dataclass config for every experiment script:
+Use `simple_parsing` with a dataclass config for every experiment script. The base `Config` in
+`src/utils/config.py` carries `model_id`, `dataset_path`, `output_dir`, `num_tasks`, `n_repeats`,
+and `seed`. Subclass it to add experiment-specific fields:
 
 ```python
 from dataclasses import dataclass
-import simple_parsing
-import logging
 
-LOGGER = logging.getLogger(__name__)
+import simple_parsing
+
+from src.utils.config import Config
+
 
 @dataclass
-class Config:
-    model_id: str = "claude-sonnet-4-6"
-    dataset_path: str = ""          # always required, no default path
-    output_dir: str = "results"
-    num_tasks: int | None = None    # None = use all
-    n_repeats: int = 1
-    seed: int = 42
+class SteeringConfig(Config):
+    vector_path: str = ""
+
 
 def main():
-    config = simple_parsing.parse(Config, add_config_path_arg=True)
+    config = simple_parsing.parse(SteeringConfig, add_config_path_arg=True)
     ...
 ```
+
+Every field you add needs a default, since all the base fields have one.
 
 The dataclass is authoritative — it defines the fields, types, and defaults. `add_config_path_arg=True`
 adds a `--config_path` flag that seeds those defaults from a YAML in `configs/`, one per experiment.
@@ -327,7 +300,7 @@ my-project/
 │   └── figures/                # polished figures for the paper
 ├── tests/                      # unit tests, mirroring the src/ modules they cover
 │   └── test_cache.py
-├── docs/                       # experimental_design.md, decisions.md
+├── docs/                       # experimental_design.md, decisions.md, project_design_decisions.md
 ├── cache/                      # LLM response cache, gitignored
 ├── .env                        # API keys, always gitignored
 ├── .env.example                # placeholder keys, the only file that may show one
@@ -345,23 +318,9 @@ Key rules:
 - `data/` and `results/` hold files, not code. Large files go in `.gitignore`.
 - `cache/` is always gitignored. It is local only.
 - `.env` is always gitignored. Never commit API keys.
-- Save the git commit hash alongside every experiment output so you can reproduce it exactly later:
-
-```python
-import subprocess
-
-def get_git_hash() -> str:
-    return subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()[:8]
-
-# save in your config dump or results metadata
-metadata = {
-    "git_hash": get_git_hash(),
-    "model_id": config.model_id,
-    "seed": config.seed,
-}
-```
-
-Write this to a `config.json` in the experiment output folder alongside the results jsonl.
+- Save the git commit hash alongside every experiment output so you can reproduce it exactly later.
+  `write_config_json(config, output_dir)` in `src/utils/config.py` writes a `config.json` carrying
+  the git hash, model, and seed next to the run's results. Every run directory gets one.
 
 ---
 
@@ -527,7 +486,7 @@ here; this section covers only the conventions that apply to any commit.
 - Use `gh` CLI for GitHub interactions.
 - Use git worktrees for parallel work on multiple papers or issues. One worktree per GitHub issue.
 
-For worktrees, symlink `.venv`, `.cache`, `.pytest_cache`, and `uv.lock` to avoid duplicate installs. Copy `.env`.
+For worktrees, symlink `.venv`, `cache/`, `.pytest_cache`, and `uv.lock` to avoid duplicate installs. Copy `.env`.
 
 ---
 

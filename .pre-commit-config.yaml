@@ -23,6 +23,12 @@ repos:
 
   - repo: local
     hooks:
+      - id: bulk-output-escape-valve
+        name: point oversized results at generations/
+        entry: bash -c 'for f in $(git diff --cached --name-only --diff-filter=AM -- results/); do if [ -f "$f" ] && [ "$(wc -c < "$f")" -gt 5000000 ]; then echo "$f is over 5MB. Move bulk output to results/raw/<run>/generations/, which is gitignored, and keep summary/metrics/config json in git."; exit 1; fi; done'
+        language: system
+        pass_filenames: false
+
       - id: no-raw-data-edits
         name: block edits to data/raw
         entry: bash -c 'git diff --cached --name-only | grep -E "^data/raw/" && echo "data/raw/ is read-only" && exit 1 || exit 0'
