@@ -5,15 +5,18 @@ One paragraph: what question this project answers, and what the core method is.
 ## Setup
 
 ```bash
-uv sync
+uv sync --extra dev --extra llm
 pre-commit install
 ```
 
-Add LLM SDKs with `uv sync --extra llm`. Add inference-stack dependencies (vLLM, transformers,
-torch, etc.) to the `inference` extra in `pyproject.toml` as needed, then:
+The `llm` extra carries the Anthropic, OpenAI and LiteLLM SDKs. Without it the scripts in
+`scripts/` fail on import, so install it up front unless the project calls no APIs at all.
+
+Add inference-stack dependencies (vLLM, transformers, torch, etc.) to the `inference` extra in
+`pyproject.toml` as needed, then:
 
 ```bash
-uv sync --extra dev --extra inference
+uv sync --extra dev --extra llm --extra inference
 ```
 
 Copy `.env.example` to `.env` and fill in your keys. `.env` is gitignored; `.env.example` is the
