@@ -33,9 +33,10 @@ training loop.
 training loop to write a checkpoint before dying. Losing 8 hours of compute to an unhandled OOM is
 the failure this rule exists to prevent. Log the exception and re-raise after checkpointing.
 
-**Seeding.** `set_seed` in `src/utils/seed.py` covers `random` and `numpy` only. Extend it here to
-seed torch, all CUDA devices, and set deterministic kernels. Record in `config.json` whether
-determinism was on, because it costs throughput and you will want to know later.
+**Seeding.** `set_seed` in `src/utils/seed.py` covers `random`, `numpy`, and torch including all
+CUDA devices, from the moment torch is installed. It deliberately does not enable deterministic
+kernels, which cost throughput. Decide per project whether you need them, and record in
+`config.json` whether they were on — you will want to know later.
 
 ## Additional conventions
 

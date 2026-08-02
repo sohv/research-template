@@ -30,8 +30,8 @@ none of those. Use `.npz` or `safetensors` for tensors, keyed by layer and hook 
 JSONL for per-example scalar results (`id`, `prompt`, feature score) so those stay greppable and
 diffable. Both are gitignored by extension; commit the scalar results, not the tensors.
 
-**Seeding.** Extend `set_seed` to seed torch and set deterministic kernels. Sampling and dropout
-during capture will otherwise make two runs of the same probe disagree.
+**Seeding.** `set_seed` already seeds torch once it's installed. Add deterministic kernels here —
+sampling and dropout during capture will otherwise make two runs of the same probe disagree.
 
 ## Additional conventions
 

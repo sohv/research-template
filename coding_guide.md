@@ -87,6 +87,9 @@ the branch locally — a PR you approve yourself is not a review. The habits bel
   merge rather than override it.
 - We never commit `.env` or any file containing a real API key. `.env.example` is the only file
   that should show a key, and only as a placeholder.
+- We reload a file before editing it if anything else might have touched it — a pre-commit hook
+  that reformats on commit, a rebase, another worktree, a tool editing alongside us. Saving a stale
+  editor buffer over fresh changes is silent, and `git diff` before saving costs nothing.
 
 **Command cheat sheet**
 

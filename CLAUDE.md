@@ -57,7 +57,12 @@ difference between a result you can defend and one you have to run again.
 
 # Derisking workflow order
 
-Before writing any code, validate the idea manually. Follow this order and only move to the next step when the current one confirms the idea is worth pursuing:
+Validate as cheaply as you can before scaling. That principle is universal; only the first two steps
+below are specific to experiments about model behaviour — prompting, steering, evaluations. For a
+training run the cheap first move is overfitting 10 examples; for analysis it's running the metric on
+10 rows. A project-level CLAUDE.md should state its own version — see `docs/project_claude_md/`.
+
+Only move to the next step when the current one confirms the idea is worth pursuing:
 
 1. **Chat interface first** — send 10-100 messages in Claude.ai or ChatGPT. Manually test the behavior you're trying to measure or produce. Update the prompt based on what you see. This costs nothing and takes 30 minutes. If it doesn't work here it won't work in code.
 2. **Few-shot prompting** — add 1-10 gold examples of the behavior you want and test manually. If a few examples in the prompt don't improve the behavior, reconsider the approach before scaling.
