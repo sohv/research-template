@@ -1,14 +1,143 @@
 # CLAUDE.md
 
-Check for a project-level CLAUDE.md in the repo root and follow it. Project-level rules override these.
+This project follows the [research template](https://github.com/sohv/research-template). The rules
+below are the template's; the section immediately following states where this project overrides them.
 
-For a fine-tuning or interpretability project, start that file from
-`docs/project_claude_md/finetuning.md` or `docs/project_claude_md/interp.md`. They override the
-sections below that assume an experiment built out of API calls.
+The helpers these rules name — `src/utils/`, `src/generation/` — come from the template. Don't retype
+one, so there's one source of truth instead of a second copy that drifts.
 
-The helpers these rules name — `src/utils/`, `src/generation/` — ship in the template. In a project
-that wasn't cloned from it, copy the module out of the template rather than retyping it, so there's
-one source of truth instead of a second copy that drifts.
+---
+
+**Before writing or editing any code in this repo, read `# Writing code` below and follow its
+comment rules exactly.** They are the rules most often ignored and the ones that make the diff
+unreadable when they are: a one-line file header, no decorative separators, one-line inline comments
+starting lowercase, and nothing commenting an import. `tests/test_comment_style.py` enforces them, so
+a violation is a failing test, not a matter of taste. Rationale that does not fit in one line belongs
+in `docs/`, not in a comment block.
+
+---
+
+# This project: algorithmic blindness
+
+Measures whether frontier LLMs can predict how algorithms perform, across **three domains** chosen
+to span how knowable that performance is:
+
+| Domain | Algorithms | Metrics | Is there a closed form? |
+| --- | --- | --- | --- |
+| `causal_discovery` | PC, LiNGAM, NOTEARS | precision, recall, f1, shd | No |
+| `shortest_path` | Dijkstra, Bellman-Ford | relaxations, successful_relaxations, nodes_settled | Yes, and exact for Dijkstra |
+| `sorting` | Quicksort, Mergesort | comparisons, moves, max_depth | Yes, in every textbook |
+
+Three domains exist because of the reviewers' central objection: causal discovery is one narrow
+family, and failure inside it is weak evidence for anything domain-agnostic. Sorting is the sharpest
+test — its expected counts are standard published results, so a miss there cannot be explained by
+the task being unreasonable, which is exactly the defence the causal-only version had no answer to.
+
+Everything is organised around **one condition grid and two tidy tables**. A condition is
+`(domain, instance, variant, algorithm)`; a prompt spec is `(naming, metadata_level, formulation)`;
+a request is a condition crossed with a spec for one model. `src/domains.py` says what the domains
+are; `src/conditions.py` builds the grid over them.
+
+`instance` is the problem instance (a bayesian network, a graph size, an array size) and `variant`
+is the knob that changes it without changing its size (the noise family, the graph density, the
+input distribution).
+
+- `ground_truth.jsonl` — one row per (dataset, noise, algorithm, metric), from bootstrap runs.
+- `predictions.jsonl` — one row per (predictor, condition, metric, prompt axes). A predictor is a
+  model, a baseline, or a human; they all share this schema so they are scored by the same code.
+- `scored.jsonl` — the join. Every analysis is a groupby over it.
+
+## Non-negotiables
+
+- **Each domain needs its own source of run-to-run variation, and getting it wrong is how v1 got
+  zero-width intervals.** Causal discovery resamples the data (the algorithms are deterministic, so
+  refitting the same array 100 times returns the same graph 100 times). Sorting and shortest path
+  redraw the *instance* instead. `ground_truth_report.json` separates `n_degenerate_causal` — always
+  a bug — from zero-width intervals elsewhere, which can be correct: quicksort on a sorted array does
+  exactly n(n-1)/2 comparisons however the values were drawn.
+- **The `analytic` predictor is the textbook formula, and it must never be fitted to the data.** It
+  declines wherever no published closed form exists — duplicate-heavy sorting input, Bellman-Ford
+  without a measured hop count, `successful_relaxations` in any case. Widening a band to make it
+  cover, or tuning a constant against measurements, turns it into a fitted baseline wearing a
+  textbook label and destroys the argument it exists to make.
+- **Metrics are per-domain and never collide.** `metrics_of(domain)` is the only source. No metric
+  name appears in two domains, so a scored row is never ambiguous about what it measured.
+- **Never drop a row to make a number look better.** A refused answer, an unparsed response and a
+  failed run are all recorded and counted in the denominator. A shrunk file reads as a smaller
+  experiment rather than a partial failure.
+- **Every proportion carries a Wilson interval and every "X beats Y" carries a paired test.**
+  `src/metrics/stats.py` has them. A bare percentage on a few hundred trials invites reading noise
+  as a ranking.
+- **Coverage is not a proper scoring rule.** `[0, 1]` covers every bounded metric perfectly. Report
+  the Winkler interval score alongside it, always.
+- **SHD is unbounded and scales with graph size.** Every SHD width, bias and error is also reported
+  divided by the maximum possible edge count. Comparing a raw SHD width across datasets is
+  meaningless.
+- **`src/metrics/extraction.py` is the only response parser.** Every accepted response shape is
+  listed in `PATTERNS` so what counts as a parse is auditable.
+
+## The three experiments the reviews demanded
+
+Each is an axis of the grid, not a separate script:
+
+1. **metadata_level** (`sparse` → `diagnostic` → `full`). Reviewers argued the original prompt
+   withheld what any predictor would need, so failure under it says nothing. At `full` the model is
+   given each domain's most predictive property — the non-Gaussianity verdict for LiNGAM, the
+   sortedness for quicksort, the longest-shortest-path hop count for Bellman-Ford — plus the
+   assumption list and the implementation. If coverage stays flat, underspecification is not the
+   explanation.
+2. **naming** (`real` vs `anonymized`). The anonymized-benchmark experiment promised in the
+   rebuttal. Anonymizing changes the name and nothing else, so the name is the only varying factor.
+3. **noise** (`gaussian` vs `uniform`/`laplace`/`exponential`). Under Gaussian noise LiNGAM is not
+   identifiable at all, so its synthetic collapse had an explanation with nothing to do with
+   memorization. Non-Gaussian noise satisfies the assumption while holding the graph fixed.
+
+## Overrides on the template
+
+- **`derisking workflow order` steps 1-2 do not apply to the ground-truth half.** The cheap first
+  move there is `configs/smoke.yaml`: one dataset, one algorithm, five runs.
+- **Exactly one frontier model; every other is capped at $8/Mtok output.** `tests/test_models_and_report.py`
+  fails if a mid-tier model goes over the cap or a second frontier model appears. The tier contrast
+  to trust is `opus` vs `haiku`: same lab, same controls, one capability step apart, so the gap is
+  not confounded with lineage. The aggregate frontier-vs-mid test is also reported but pools models
+  whose price does not track capability across the $0.87-$7.50 band.
+- **Every model is reached through OpenRouter**, so there is one key, one client and one retry path.
+  `src/generation/openrouter.py` is synchronous; the template's `cache.py` and `batch.py` are the
+  async path and are unused. Adding a model is a row in `src/generation/models.py`, not a new branch.
+  **Run `uv run -m scripts.check_models` before any paid run** — it validates every model slug against
+  OpenRouter's live catalog and checks the declared frontier/mid tier against actual pricing.
+- **The wording axis is fractional, and the headline reads formulation 1 because of it.**
+  Formulation 1 runs on all 111 conditions; 2 and 3 on a stratified third (`wording_every: 3`),
+  since wording sensitivity is a property of the prompt rather than of the instance. The
+  formulation-0 row is an average that only exists where two or more wordings ran, so a headline
+  anchored on it would silently drop the conditions outside the slice. `wording_every: 1` restores
+  the full factorial exactly.
+- **Temperature is pinned at 0.1 on every model that honours it, and `seed` at 42 where supported.**
+  The template says not to set either. Wording sensitivity is being measured, so sampling noise has
+  to be held down or it contaminates the signal. OpenRouter accepts an unsupported sampling control
+  and silently drops it, so `ModelSpec` declares what each model honours, `check_models` verifies
+  that against the live catalog, and the client withholds the rest. Each response records the
+  controls actually applied, because "temperature was pinned" is false for a model that ignores it
+  and the paper must not claim a control the run did not have.
+- **Weights and Biases is not used.** Runs are compared through `results/raw/`.
+- **Results are never gitignored.** Every run artifact is committed, including raw responses and
+  per-run logs, so any number in the paper traces to a file in git. `scripts/sync_results.py` mirrors
+  them to the `algorithmic-blindness-results` Hugging Face dataset as the citable copy.
+- **Every run appends a section to `results/RESULTS.md`.** Append-only, newest last. A result that
+  turned out to be wrong gets a new section saying so, never a rewrite of the old one.
+- `--model_id` in the base `Config` is unused; `--models` selects models by short key
+  (`opus`, `gemini`, `gpt`, `grok`, `qwen`, `haiku`, `deepseek`).
+
+## Pipeline
+
+```
+build_ground_truth  ->  run_predictions  ->  parse_predictions  ->  score  ->  analyze
+                                                                          \->  plot
+make_elicitation_sheet  ->  (an expert fills it in)  ->  score --human_predictions
+```
+
+Each stage takes `--output_dir`, writes `config.json` with the git hash and `run.log` beside its
+results, and prints the next command.
 
 ---
 
@@ -89,7 +218,7 @@ Never skip to step 3 or 4 without doing steps 1 and 2. The most common waste in 
 - No decorators in scripts meant to run from the console. Keep the entry point a plain function call.
 - No `try`/`except` around data creation or logic errors. Let those crash loudly — a silent wrong number is worse than a stack trace.
 - The one exception is the per-item boundary of a batch: catch there, `LOGGER.error` with the item's id, record the failure in the output file, and keep going. One failed call must never discard the results of a long run. `run_batch` in `src/generation/batch.py` is the worked example — see the LLM API calls section.
-- File-level comment at the top of each script: one line saying what the experiment does, followed by the run command. Nothing else.
+- File-level comment at the top of each script: one line saying what the experiment does, followed by the run command. Nothing else. A module in `src/` gets at most that one line and no run command. If the reasoning needs a paragraph, it goes in `docs/`, not at the top of the file.
 - Never use decorative separators in experiment output. No lines of `#`, `*`, `=`, `-`, or any other repeated character. No banners like `print("#" * 70)`. Each experiment stage prints its heading as a plain line followed by its results. Nothing else.
 - Keep inline comments short, one line max, plain words. Only comment on non-obvious logic. No comment is better than a redundant comment. Start comments with a lowercase letter.
     ```python
@@ -97,6 +226,7 @@ Never skip to step 3 or 4 without doing steps 1 and 2. The most common waste in 
     # uv run -m scripts.run_robustness --dataset_path data/processed/prompts.jsonl --output_dir results/raw/250612_robustness_v1 --model_id claude-sonnet-4-6 --seed 42
     ```
 - Do not comment imports, config fields with obvious names, or standard library calls.
+- These four rules are checked by `tests/test_comment_style.py`. Run it before committing; do not silence it by adding an exemption.
 
 ## Experimental Logging & Reproducibility Guidelines
 
@@ -277,21 +407,24 @@ cd research-template
 
 Copy the contents of the template once cloned into the project folder (project root directory).
 
-Alternatively, use the following structure (remember to prefer the repo over this structure):
+This project's structure, which is the template's with `finetuning/` and `interp/` dropped and
+`algorithms/` and `visualize/` added for the causal discovery stage:
 ```
 my-project/
 ├── src/                        # all reusable code lives here, never a one-off run script
 │   ├── __init__.py
-│   ├── data/                   # dataset loading and preprocessing
-│   ├── generation/             # model inference, prompting, sampling, LLM cache wrapper
-│   ├── finetuning/             # training loops
-│   ├── interp/                 # probes, features, hook points
-│   ├── metrics/                # metric computation and downstream analysis
+│   ├── domains.py              # what the three domains are: algorithms, metrics, instances
+│   ├── conditions.py           # the experiment grid over them
+│   ├── data/                   # .bif networks, instance generation, per-domain diagnostics
+│   ├── generation/             # llm inference, prompt assembly, querying
+│   ├── algorithms/             # all seven algorithms and their ground truth
+│   ├── metrics/                # parsing, scoring, statistics, predictors, analysis
+│   ├── visualize/              # figure style and the paper's figures
 │   └── utils/                  # seeding, logging, git hash, shared helpers
 ├── scripts/                    # entry points, one per pipeline stage, thin wrappers over src/
 │   ├── __init__.py
-│   ├── run_generation.py
-│   └── run_metrics.py
+│   ├── build_ground_truth.py
+│   └── run_predictions.py
 ├── configs/                    # one YAML per experiment: model lists, hyperparameters, paths
 ├── notebooks/                  # de-risk mode exploration, stripped by nbstripout
 ├── data/
